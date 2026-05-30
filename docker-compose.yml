@@ -94,7 +94,7 @@ services:
       dockerfile: Dockerfile
       target: prod
     image: mics-view:web
-    profiles: ["viewer", "demo"]
+    profiles: ["viewer", "demo", "gazebo-viewer"]
     ports:
       - "8088:80"
 
@@ -115,6 +115,51 @@ services:
       - ./scenarios:/scenarios:ro
       - ./viewer_gateway/gateway.example.yaml:/config/gateway.yaml:ro
       - mics-recordings:/recordings
+
+  # --- gazebo-viewer profile: the full browsable stack driven by GAZEBO physics.
+  # Same orchestrator+gateway+UI as the `viewer` profile, but the orchestrator
+  # launches the Gazebo topology (gazebo.launch.py) and RTF is live-controllable
+  # from the browser. The orchestrator runs on mics:gazebo because the run it
+  # spawns (ign server + ros_gz + spawner) lives in its own container.
+  #   docker compose build mics            # base, if stale
+  #   docker compose --profile gazebo-viewer up --build
+  # Then open http://localhost:8088 and start a scenario.
+  orchestrator-gazebo:
+    image: mics:gazebo
+    build:
+      context: .
+      dockerfile: Dockerfile.gazebo
+    profiles: ["gazebo-viewer"]
+    command: ["ros2", "launch", "mics_nodes", "orchestrator.launch.py",
+              "catalog_dir:=/scenarios", "default_rtf:=2.0",
+              "launch_file:=gazebo.launch.py", "speed_arg:=rtf",
+              "rtf_controllable:=true"]
+    volumes:
+      - ./scenarios:/scenarios:ro
+    environment:
+      - ROS_DOMAIN_ID=42
+      - RCUTILS_LOGGING_BUFFERED_STREAM=0
+      - IGN_GAZEBO_RESOURCE_PATH=/gz/models
+
+  gateway-gazebo:
+    image: mics:headless
+    build:
+      context: .
+      dockerfile: Dockerfile
+    profiles: ["gazebo-viewer"]
+    command: ["python3", "-m", "viewer_gateway", "--source", "ros",
+              "--config", "/config/gateway.yaml"]
+    depends_on:
+      - orchestrator-gazebo
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./scenarios:/scenarios:ro
+      - ./viewer_gateway/gateway.gazebo.yaml:/config/gateway.yaml:ro
+      - mics-recordings:/recordings
+    environment:
+      - ROS_DOMAIN_ID=42
+      - RCUTILS_LOGGING_BUFFERED_STREAM=0
 
 volumes:
   mics-recordings:

@@ -62,12 +62,21 @@ class SimOrchestratorNode(Node):
         self.declare_parameter("catalog_dir", "/scenarios")
         self.declare_parameter("default_rtf", 2.0)
         # Software-sim sets its tick rate once at launch, so runtime RTF change
-        # is not possible without relaunch — report it as locked (FR-V-54).
+        # is not possible without relaunch — report it as locked (FR-V-54). The
+        # gazebo profile flips this on (Gazebo RTF is a live world knob).
         self.declare_parameter("rtf_controllable", False)
+        # Which topology a "run" launches, and how RTF is passed to it. Defaults
+        # are the software-sim profile; the gazebo profile overrides them.
+        self.declare_parameter("launch_file", "mics.launch.py")
+        self.declare_parameter("speed_arg", "rate_factor")
+        self.declare_parameter("gz_world", "mics")
 
         self.catalog_dir = Path(self.get_parameter("catalog_dir").value)
         self.default_rtf = float(self.get_parameter("default_rtf").value)
         self.rtf_controllable = bool(self.get_parameter("rtf_controllable").value)
+        self.launch_file = str(self.get_parameter("launch_file").value)
+        self.speed_arg = str(self.get_parameter("speed_arg").value)
+        self.gz_world = str(self.get_parameter("gz_world").value)
 
         self._cb = ReentrantCallbackGroup()
 
@@ -239,8 +248,8 @@ class SimOrchestratorNode(Node):
         self._run_start_wall = time.monotonic()
         start_wall = self._run_start_wall
 
-        cmd = ["ros2", "launch", "mics_nodes", "mics.launch.py",
-               f"scenario:={scenario_path}", f"rate_factor:={rtf}"]
+        cmd = ["ros2", "launch", "mics_nodes", self.launch_file,
+               f"scenario:={scenario_path}", f"{self.speed_arg}:={rtf}"]
         self.get_logger().info(f"run {self._run_id}: {' '.join(cmd)}")
         # New session/process group so we can tear down the whole launch tree.
         popen_kwargs = {}
@@ -333,12 +342,40 @@ class SimOrchestratorNode(Node):
             response.message = ("runtime RTF change is locked in the software-sim "
                                 "profile; relaunch with requested_rtf instead")
             return response
-        # (Reserved for the SITL/lockstep profile, where Gazebo physics RTF can
-        # change at runtime.) Not reachable while rtf_controllable is False.
-        response.success = False
+        if self._state != RUNNING:
+            response.success = False
+            response.applied_rtf = float(self._requested_rtf)
+            response.message = "no active run to retime"
+            return response
+        rtf = float(request.requested_rtf)
+        if rtf <= 0.0:
+            response.success = False
+            response.applied_rtf = float(self._requested_rtf)
+            response.message = "requested_rtf must be > 0"
+            return response
+        # Gazebo profile: RTF is a live world knob. Push it to the running server
+        # via the physics service (same lever gazebo.launch.py pulls at boot).
+        ok, detail = self._set_gz_rtf(rtf)
+        if ok:
+            self._requested_rtf = rtf
+        response.success = ok
         response.applied_rtf = float(self._requested_rtf)
-        response.message = "no active controllable run"
+        response.message = detail
         return response
+
+    def _set_gz_rtf(self, rtf: float) -> tuple[bool, str]:
+        cmd = ["ign", "service", "-s", f"/world/{self.gz_world}/set_physics",
+               "--reqtype", "ignition.msgs.Physics",
+               "--reptype", "ignition.msgs.Boolean",
+               "--timeout", "3000",
+               "--req", f"real_time_factor: {rtf}"]
+        try:
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=6)
+        except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
+            return False, f"set_physics call failed: {exc}"
+        if r.returncode != 0:
+            return False, f"set_physics rejected (rc={r.returncode}): {r.stderr.strip()}"
+        return True, f"RTF set to {rtf}"
 
 
 def main(argv=None):

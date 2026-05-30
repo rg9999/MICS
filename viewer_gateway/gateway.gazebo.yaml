@@ -1,0 +1,46 @@
+# viewer-gateway config for the GAZEBO-VIEWER profile. Identical to
+# gateway.example.yaml except runtime speed control is unlocked: in the gazebo
+# profile RTF is a live world knob, so the browser may retime a running sim.
+connection:
+  ws_host: 0.0.0.0
+  ws_port: 8080
+
+# Single source of truth for ENU<->geodetic. Must match the scenario origin.
+datum:
+  lat: 32.0853
+  lon: 34.7818
+  alt: 30.0
+
+performance:
+  snapshot_rate_hz: 25
+  lidar_max_points: 50000
+
+grids:
+  process_log:
+    source_topic: /rosout
+    min_level: INFO
+    ring_buffer_rows: 20000
+    batch_rate_hz: 10
+
+controls:
+  enabled: true
+
+recording:
+  enabled: true
+  dir: /recordings
+  session_name_template: "{iso}_run-{seq}"
+  segment_rotate_mb: 64
+  segment_rotate_seconds: 300
+  compress: gzip
+  include_logs: true
+
+scenarios:
+  enabled: true
+  catalog_dir: /scenarios
+  orchestrator_action: run_scenario
+  status_topic: /sim_run_status
+  set_speed_service: set_sim_speed
+  auto_record_on_run: true
+  allow_overrides: true
+  default_rtf: 2.0
+  allow_runtime_speed: true   # gazebo profile: RTF is live-controllable
