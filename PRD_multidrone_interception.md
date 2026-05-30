@@ -123,6 +123,8 @@ IDs use `FR-<area>-<n>`. Priority: **M** (must), **S** (should), **C** (could).
 - **FR-SIM-4 (M)** Inject cue degradation (latency, dropout, position noise) on the GS feed.
 - **FR-SIM-5 (S)** Jetson-in-the-loop: run perception on real Jetson against simulated camera feed.
 - **FR-SIM-6 (S)** Gymnasium env exposing the scenario for RL of allocation/pursuit policies.
+- **FR-SIM-7 (S)** Scenario orchestration: a `mics_sim_orchestrator` node configures and starts/stops a sim run from a vetted scenario catalog by commanding the **always-on** simulation over ROS2 (no container lifecycle / no `docker.sock`), and publishes run status. Driven by the viewer (see *MICS-View* PRD §6.7–§6.8).
+- **FR-SIM-8 (S)** Simulation-speed control: set real-time factor (RTF) at launch and, for pure SITL, adjust it at runtime; report requested vs achieved RTF. Forced to 1× and disabled on HITL/real hardware.
 
 ### 3.6 Ground station UX
 - **FR-GS-1 (M)** Live map: targets (with uncertainty), interceptors, assignments, states.
@@ -206,16 +208,20 @@ aerial-autonomy-stack/
 │   ├── yolo_py/                     # [AAS] camera + YOLO
 │   ├── mics_fusion/         # NEW   # camera+radar+lidar EKF/UKF
 │   ├── mics_terminal/       # NEW   # acquisition + terminal pursuit + capture trigger
-│   └── mics_msgs/           # NEW   # TargetTrack, Assignment, DroneStatus, CaptureEvent
+│   └── mics_msgs/           # NEW   # msgs: TargetTrack, Assignment, DroneStatus, CaptureEvent,
+│                            #         SimRunStatus, ScenarioInfo; action: RunScenario; srv: SetSimSpeed
 ├── ground/ground_ws/src/
 │   ├── ground_system/               # [AAS] /tracks publisher  ── EXTENDED
 │   ├── mics_target_ingest/  # NEW   # internal+external normaliser
 │   ├── mics_track_manager/  # NEW   # GS-side track fusion / TTL
 │   ├── mics_allocator/      # NEW   # assignment + reassignment
-│   └── mics_monitor/        # NEW   # map UI / operator controls
+│   ├── mics_monitor/        # NEW   # operator UI backend (frontend = MICS-View)
+│   ├── viewer-gateway/      # NEW   # ROS2↔browser bridge (snapshots, logs, recording, scenario proxy)
+│   └── mics_sim_orchestrator/ # NEW # launches/stops sim runs; RunScenario action + SetSimSpeed srv
 └── simulation/simulation_resources/
     ├── aircraft_models/             # [AAS] X500v2 (PX4), Iris (AP), VTOL models
     ├── attacker_models/     # NEW   # target airframes + sensor signature
+    ├── scenarios/           # NEW   # vetted scenario catalog (run from the viewer)
     └── sensors/             # NEW   # radar plugin config (camera+lidar already in AAS)
 ```
 
@@ -392,7 +398,9 @@ Every transition broadcasts on `/state_sharing_drone_N` so the GS allocator stay
 | `mics_target_ingest` | Normalise internal/external sources → `TargetTrack`; host `cue_degrader` in internal mode. |
 | `mics_track_manager` | Associate/age/fuse tracks; publish `/tracks` (≥5 Hz). |
 | `mics_allocator` | Maintain roster from `/state_sharing_*`; compute assignments; publish `/assignments`; reassign on failure. |
-| `mics_monitor` | Map UI, assignment overlay, operator controls, logging/replay. |
+| `mics_monitor` | Map UI, assignment overlay, operator controls, logging/replay. **Frontend = MICS-View** (CesiumJS viewer; see *MICS-View* PRD). |
+| `viewer-gateway` | Bridges ROS2↔browser for MICS-View: per-frame snapshots, ENU→geodetic, log aggregation (`/rosout`), recording, scenario-run proxy. (Detailed in *MICS-View* PRD.) |
+| `mics_sim_orchestrator` | **Sim-host node.** Commands the **always-on** simulation containers over ROS2 (`sim_control`: world reset, spawn/despawn, physics/RTF, sensor-mode) to run a scenario from the vetted catalog; serves `RunScenario` action + `SetSimSpeed` service; publishes `SimRunStatus`. Holds **no `docker.sock`**; sim-only; cannot command real hardware. |
 
 ### 7.2 Allocation algorithm
 
@@ -403,6 +411,8 @@ Every transition broadcasts on `/state_sharing_drone_N` so the GS allocator stay
 
 ### 7.3 Operator UI (`mics_monitor`)
 Live 2D/3D map: targets with uncertainty ellipses, interceptors coloured by state, assignment links, plus arm/disarm-all, abort/RTL-all, pause-allocation. Records rosbag/ulog for replay.
+
+The operator UI is implemented as **MICS-View**, a browser-based CesiumJS 3D viewer specified in its own PRD (*MICS-View — 3D Situational-Awareness Viewer*). It additionally provides high-performance grids (interceptor/target/process-log), disk recording (incl. logs), scenario selection + run/stop, and simulation-speed control — all via the `viewer-gateway` and `mics_sim_orchestrator` above.
 
 ---
 
@@ -458,6 +468,75 @@ geometry_msgs/Point engagement_point
   "velocity": {"vn": 0.0, "ve": 0.0, "vd": 0.0},
   "pos_sigma_m": 12.0, "class_confidence": 0.7, "source": "ext_radar_1" }
 ```
+
+### 8.6 Logging — standard `/rosout` (no custom message)
+All MICS nodes (drones + GS) log via the ROS2 standard path. Log messages go to console, disk, and the `/rosout` topic using `rcl_interfaces/msg/Log` (fields: `stamp`, `level` [DEBUG=10/INFO=20/WARN=30/ERROR=40/FATAL=50], `name`, `msg`, `file`, `function`, `line`; the logger `name` identifies the originating node). The `viewer-gateway` aggregates `/rosout` for the process-log grid. For cross-machine aggregation over Zenoh, run a `zenoh-bridge-ros2dds` so every node's `/rosout` reaches the gateway. **Do not** introduce a custom log message; if structured run metadata is needed, publish an *additional* topic alongside `/rosout`.
+
+### 8.7 Simulation control interfaces (drive the `mics_sim_orchestrator`)
+```
+# mics_msgs/action/RunScenario.action
+# Goal
+string  scenario_id          # from the vetted catalog (never a free-form path/command)
+string  overrides_yaml       # optional schema-validated overlay (e.g. laptop profile)
+bool    record               # auto-start a recording session for this run
+float64 requested_rtf        # initial real-time factor; 0 = as fast as possible (SITL only)
+---
+# Result
+bool    success
+string  message
+string  run_id
+string  recording_session_id
+float64 duration_s
+---
+# Feedback
+uint8   state                # see SimRunStatus constants
+string  detail
+float64 elapsed_s
+uint8   drones_up
+uint8   targets_up
+float64 actual_rtf
+```
+```
+# mics_msgs/msg/SimRunStatus.msg   (published on /sim_run_status)
+uint8 IDLE=0
+uint8 LAUNCHING=1
+uint8 RUNNING=2
+uint8 STOPPING=3
+uint8 STOPPED=4
+uint8 ERROR=5
+std_msgs/Header header
+uint8   state
+string  scenario_id
+string  run_id
+float64 elapsed_s
+uint8   drones_up
+uint8   targets_up
+string  recording_session_id
+float64 requested_rtf
+float64 actual_rtf            # achieved; may be < requested when compute-bound
+bool    rtf_controllable      # false on HITL/real hardware (locked at 1.0)
+string  message
+```
+```
+# mics_msgs/msg/ScenarioInfo.msg   (catalog descriptor)
+string scenario_id
+string name
+string description
+string target_source          # internal | external
+uint8  defender_count
+uint8  attacker_count
+string sensor_mode            # ideal | stub | full
+string path                   # server-side; not exposed raw to clients
+```
+```
+# mics_msgs/srv/SetSimSpeed.srv   (runtime RTF change; auth-gated; SITL only)
+float64 requested_rtf         # 0 = as fast as possible
+---
+bool    success
+float64 applied_rtf
+string  message
+```
+**Security:** with the **always-on** model the orchestrator commands the running sim over ROS2 and holds no Docker-daemon access (no `docker.sock`). `RunScenario`/`SetSimSpeed` are auth-gated, accept only catalog `scenario_id`s + schema-validated overrides (no shell strings or paths), and are audit-logged. They control **simulation only** and cannot arm or fly real aircraft. Deployment/container-networking detail is in *MICS-View* PRD §6.8.
 
 ---
 
@@ -574,6 +653,7 @@ perception: { detector: yolov8n }
 
 ## Appendix B — Reuse map (what to build vs reuse)
 
-- **Reuse from AAS:** Docker/tmux harness, faster-than-real-time multi-vehicle Gazebo SITL, PX4/ArduPilot SITL, `autopilot_interface`, `state_sharing` (Zenoh), `yolo_py` + camera & LiDAR sim models, Gymnasium wrapper, Jetson deployment path.
+- **Reuse from AAS:** Docker/tmux harness, faster-than-real-time multi-vehicle Gazebo SITL, PX4/ArduPilot SITL, `autopilot_interface`, `state_sharing` (Zenoh), `yolo_py` + camera & LiDAR sim models, Gymnasium wrapper, Jetson deployment path. Standard `/rosout` logging.
 - **Extend:** `mission` (state machine), `offboard_control` (PN guidance), `ground_system` (`/tracks`).
-- **Build new:** radar sim + driver, `mics_fusion`, `mics_terminal` (+capture interface), `mics_target_ingest` (internal+external+degrader), `mics_track_manager`, `mics_allocator`, `mics_monitor`, `mics_msgs`, `safety`.
+- **Build new:** radar sim + driver, `mics_fusion`, `mics_terminal` (+capture interface), `mics_target_ingest` (internal+external+degrader), `mics_track_manager`, `mics_allocator`, `mics_monitor`, `mics_sim_orchestrator`, `viewer-gateway`, `mics_msgs` (incl. `RunScenario.action`, `SimRunStatus.msg`, `ScenarioInfo.msg`, `SetSimSpeed.srv`), `safety`.
+- **Companion deliverable:** *MICS-View* — the browser-based 3D viewer that implements `mics_monitor`'s UI (grids, recording, scenario run + sim-speed control). Specified in its own PRD; shares `mics_msgs`, topic names, the scenario catalog (Appendix A), the datum, and the non-kinetic framing.

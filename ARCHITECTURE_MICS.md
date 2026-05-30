@@ -2,7 +2,7 @@
 
 **Version:** 0.1 (draft)
 **Status:** For engineering review
-**Derived from:** [PRD_multidrone_interception.md](PRD_multidrone_interception.md)
+**Derived from:** [PRD_multidrone_interception.md](PRD_multidrone_interception.md) · [PRD_viewer_architecture.md](PRD_viewer_architecture.md)
 **Last updated:** 2026-05-30
 
 ---
@@ -17,6 +17,9 @@
 | **Decoupled by transport** | Zenoh between vehicles and GS (RF-friendly, lossy-tolerant); ROS2 DDS strictly *within* a vehicle. No cross-vehicle DDS. |
 | **Safety is non-negotiable** | The `safety` node sits at the highest priority on every drone and can veto any actuation, including capture. |
 | **Source-agnostic cueing** | Internal sim and external sensor feeds normalize to one `TargetTrack`. The autonomy never knows or cares which produced a cue. |
+| **One choke point to the browser** | The `viewer-gateway` is the single boundary between the ROS2/Zenoh bus and the browser. It throttles, transforms (ENU→geodetic), records, proxies scenario control, and is the auth boundary. The browser never speaks DDS/Zenoh and only one host port (8080, WebSocket) is exposed. |
+| **GPU-less host, GPU-only browser** | MICS-View renders on browser WebGL, so the always-on sim/GS host needs no GPU for visualization. Rendering load lives on the operator's machine. |
+| **Standard logging** | All processes log via ROS2 `/rosout` (`rcl_interfaces/msg/Log`). No custom log message; the gateway aggregates and forwards as `LogBatch`. |
 
 ---
 
@@ -40,7 +43,7 @@
                                       └───────┘   └───────┘   └───────┘
 ```
 
-**Actors:** operator (GS UI), external detection source, attacker UAV(s) (simulated), defender drones (the MICS fleet).
+**Actors:** operator (browser — **MICS-View**, via the `viewer-gateway` over WebSocket), external detection source, attacker UAV(s) (simulated), defender drones (the MICS fleet).
 
 ---
 
@@ -53,7 +56,8 @@
 | `mics_target_ingest` | Normalize internal + external sources → `TargetTrack`; host `cue_degrader` in internal mode | sub: ext UDP/Zenoh, `/attacker/*/truth`; pub: `/tracks_raw` | NEW |
 | `mics_track_manager` | Associate, age-out (TTL), and fuse partial tracks into one picture | sub: `/tracks_raw`; pub: `/tracks` (≥5 Hz) | NEW |
 | `mics_allocator` | Maintain roster, compute drone→target assignments, reassign on failure | sub: `/tracks`, `/state_sharing_*`; pub: `/assignments` | NEW |
-| `mics_monitor` | Map UI, assignment overlay, operator controls, rosbag/ulog logging | sub: all; pub: operator commands | NEW |
+| `mics_monitor` | Backend of the operator UI; **frontend is MICS-View** (browser, see §14). Owns the server side of situational awareness + operator commands | sub: all; pub: operator commands | NEW |
+| `viewer-gateway` | The choke point to the browser: per-frame `FrameSnapshot`, ENU→geodetic transform, `/rosout` aggregation → `LogBatch`, recording/replay, scenario-run proxy to the orchestrator, auth boundary | sub: all bus topics + `/rosout` + `/sim_run_status`; pub (WS): snapshots/logs/status; proxies `RunScenario`/`SetSimSpeed` | NEW |
 | `ground_system` | AAS `/tracks` plumbing | — | EXTENDED |
 
 ### 3.2 Per-drone (runs on each Jetson / SITL instance)
@@ -70,7 +74,17 @@
 | `mission` | Hosts the MICS state machine; reads `/assignments` | EXTENDED |
 | `state_sharing` | Publishes `/state_sharing_drone_N` (pose+status+assignment) | AAS reuse |
 | `safety` | Geofence, RTL, kill switch, capture interlocks — always-on, top priority | NEW |
-| `mics_msgs` | `TargetTrack`, `Assignment`, `DroneStatus`, `CaptureEvent` | NEW |
+| `mics_msgs` | `TargetTrack`, `Assignment`, `DroneStatus`, `CaptureEvent`, `ScenarioInfo`, `SimRunStatus`, `RunScenario`, `SetSimSpeed` | NEW |
+
+### 3.3 Simulation host (always-on containers)
+
+| Container | Responsibility | Pub / Sub | Build state |
+|---|---|---|---|
+| `gazebo_sim` + `sim_control` | Gazebo Harmonic world + faster-than-real-time stepping; reset/spawn/RTF/start over ROS2 | sub: sim_control cmds; pub: sim sensor streams, truth | EXTENDED |
+| `attacker_sim` | Spawns targets, drives trajectories, emits ground truth (sensor models + scoring only) | pub: `/attacker/*/truth` | NEW |
+| `mics_sim_orchestrator` | Commands the **always-on** sim over ROS2 (reset/spawn/RTF/start) for a run from the **vetted catalog**. Exposes `RunScenario` (action) + `SetSimSpeed` (srv); publishes `SimRunStatus`. **No `docker.sock`** — it controls the sim graph, not containers | sub: catalog; pub: `/sim_run_status`; srv/action: `run_scenario`, set-speed | NEW |
+
+The orchestrator deliberately has **no Docker control plane**: containers are brought up once (always-on) and a "run" is a sim reset+spawn+start, never a container lifecycle action. This keeps the attack surface of operator-triggered runs inside the sim graph.
 
 ---
 
@@ -149,8 +163,11 @@ Every transition is broadcast on `/state_sharing_drone_N` so the allocator stays
 | Within a vehicle (node↔node) | ROS2 DDS | per-node |
 | Drone ↔ GS, drone ↔ drone | Zenoh (RF/WAN bridge) | `/tracks` ≥5 Hz, `/state_sharing` ≥10 Hz |
 | External detection ingress | UDP/JSON datagram **or** Zenoh/ROS2 bridge | source-defined |
+| `viewer-gateway` ↔ browser | **WebSocket** (`:8080`, only host-exposed port) — `FrameSnapshot` / `LogBatch` / control | snapshots ≤ render budget, coalesced |
+| Logging (all processes) | ROS2 `/rosout` (`rcl_interfaces/msg/Log`); cross-machine via `zenoh-bridge-ros2dds` | as-emitted, batched by gateway |
+| Sim control (gateway ↔ orchestrator) | ROS2 action/srv (`RunScenario`, `SetSimSpeed`), status on `/sim_run_status` | on-demand / status ≥1 Hz |
 
-**Message schemas** (`mics_msgs`): `TargetTrack`, `Assignment`, `DroneStatus`, `CaptureEvent` — defined in PRD §8. External UDP/JSON maps onto `TargetTrack`.
+**Message schemas** (`mics_msgs`): `TargetTrack`, `Assignment`, `DroneStatus`, `CaptureEvent`, plus the orchestration set `ScenarioInfo` / `SimRunStatus` / `RunScenario` / `SetSimSpeed` — defined in PRD §8 / §8.7. External UDP/JSON maps onto `TargetTrack`. Logging reuses the standard `rcl_interfaces/msg/Log` — **no custom log message**. The browser never speaks DDS/Zenoh; the gateway is the only translation point.
 
 ---
 
@@ -168,19 +185,32 @@ The `safety` node is **always-on and highest priority** on every drone:
 ## 10. Deployment view
 
 ```
-Docker-first (each role = a container with a tmux entrypoint)
+Docker-first — single user-defined network, containers always-on, one zenoh-router hub.
+A "run" is a sim reset, not a container start.
 
 ┌─ simulation container ─┐  ┌─ ground container ─┐  ┌─ aircraft container ×N ─┐
 │ Gazebo Harmonic        │  │ GS ROS2 nodes      │  │ PX4/AP SITL + onboard   │
 │ PX4/AP SITL spawns     │  │ mics_* GS pkgs     │  │ ROS2 graph (mics_*)     │
-│ attacker + sensor sim  │  │ mics_monitor UI    │  │ one per defender        │
-└────────────────────────┘  └────────────────────┘  └─────────────────────────┘
-         │                            │                          │
-         └──────────── Zenoh bridge ──┴──────────────────────────┘
+│ attacker + sensor sim  │  │ mics_monitor (bk)  │  │ one per defender        │
+│ mics_sim_orchestrator  │  │ viewer-gateway ────┼──┐                         │
+└───────────┬────────────┘  └─────────┬──────────┘  │  └─────────────────────┘
+            │                         │             │ WebSocket :8080
+            └──────── zenoh-router (tcp/7447, internal) ───────┘   (only host-exposed port)
+                                      │
+                                      ▼
+                        ┌─────────────────────────────┐
+                        │ Browser — MICS-View (WebGL)  │  ← operator's machine, GPU here
+                        └─────────────────────────────┘
 
 HITL (P6): aircraft container → physical Jetson Orin running yolo_py + mics_fusion.
 Live (P8): authorized range only, real autopilot + payload driver.
 ```
+
+**Topology rules:**
+- All containers join one user-defined Docker network and rendezvous through a single `zenoh-router` (`tcp/7447`, **internal only**).
+- **Only `:8080` (the gateway WebSocket) is published to the host.** No DDS/Zenoh port is exposed; the browser cannot reach the bus directly.
+- Containers are **always-on**; scenario runs are sim resets driven by `mics_sim_orchestrator`, never container lifecycle events (no `docker.sock` anywhere).
+- The sim/GS host needs **no GPU for visualization** — MICS-View renders on the operator's browser. GPU on the host is only for `full` perception (YOLO/render).
 
 **`sensor_mode` switch** (same scenarios, different hardware):
 - `ideal` — near-truth detections, no render/YOLO. **CPU default, P1–P2.**
@@ -193,9 +223,9 @@ Live (P8): authorized range only, real autopilot + payload driver.
 
 | Category | Components |
 |---|---|
-| **Reuse (AAS as-is)** | Docker/tmux harness, faster-than-real-time multi-vehicle Gazebo SITL, PX4/AP SITL, `autopilot_interface`, `state_sharing` (Zenoh), `yolo_py` + camera/LiDAR sim, Gymnasium wrapper, Jetson path |
-| **Extend** | `mission` (state machine), `offboard_control` (PN guidance), `ground_system` (`/tracks`) |
-| **Build new** | radar sim + `radar_driver`, `mics_fusion`, `mics_terminal` (+capture interface), `mics_target_ingest` (+degrader), `mics_track_manager`, `mics_allocator`, `mics_monitor`, `mics_msgs`, `safety`, attacker models |
+| **Reuse (AAS / std as-is)** | Docker/tmux harness, faster-than-real-time multi-vehicle Gazebo SITL, PX4/AP SITL, `autopilot_interface`, `state_sharing` (Zenoh), `yolo_py` + camera/LiDAR sim, Gymnasium wrapper, Jetson path, **ROS2 `/rosout` (`rcl_interfaces/msg/Log`)**, `zenoh-bridge-ros2dds`, **CesiumJS + Resium + rosbridge_suite/roslib.js** (MICS-View deps) |
+| **Extend** | `mission` (state machine), `offboard_control` (PN guidance), `ground_system` (`/tracks`), `gazebo_sim`/`sim_control` (reset/spawn/RTF hooks) |
+| **Build new** | radar sim + `radar_driver`, `mics_fusion`, `mics_terminal` (+capture interface), `mics_target_ingest` (+degrader), `mics_track_manager`, `mics_allocator`, `mics_monitor`, **`viewer-gateway`**, **`mics_sim_orchestrator`**, `mics_msgs` (incl. orchestration set), `safety`, attacker models, **MICS-View frontend** (companion deliverable, see PRD_viewer_architecture.md) |
 
 ---
 
@@ -212,6 +242,7 @@ Live (P8): authorized range only, real autopilot + payload driver.
 | **P6** | HITL deployment (§10) — real-time perception on Orin |
 | **P7** | Gym env / policy learning (optional) |
 | **P8** | Constrained live flight on authorized range |
+| **V0–V6, VS** | MICS-View (§14) brought up in parallel against recorded rosbags then live: V0 scene from a rosbag → grids/logs → recording/replay → scenario run/stop + sim-speed (VS). See PRD_viewer_architecture.md §13 |
 
 ---
 
@@ -224,6 +255,23 @@ Live (P8): authorized range only, real autopilot + payload driver.
 | Comms under RF stress | Zenoh-only across vehicles; deconfliction tolerant of dropouts; comms-in-the-loop test |
 | Allocation thrash | Hysteresis / commit-time in `mics_allocator` |
 | Capture safety | Hard interlock in `safety`, separate from `mics_terminal`; 0 false-fire required in sim |
+| ENU↔geodetic datum mismatch | Single shared ENU datum in config, owned by `viewer-gateway`; one transform point so sim, GS, and viewer cannot drift |
+| Topic firehose to browser | Gateway coalesces to per-frame `FrameSnapshot` + batched `LogBatch` under a render budget; browser never subscribes to raw bus |
+| Operator process-control safety | Run/stop + sim-speed are auth-gated and act on **simulation only**, proxied through `mics_sim_orchestrator` (no `docker.sock`, no real-aircraft path) |
+| Single exposed port as attack surface | Only `:8080` WS published; auth boundary at the gateway; operator/control messages gated server-side |
+
+---
+
+## 14. Visualization & sim-control layer (MICS-View)
+
+The operator-facing UI is split into a backend (`mics_monitor` + `viewer-gateway`, on the GS) and a browser frontend (**MICS-View**). The frontend is owned by [PRD_viewer_architecture.md](PRD_viewer_architecture.md); the architecture-relevant boundaries are:
+
+- **Gateway as sole boundary** — `viewer-gateway` is the only path between the ROS2/Zenoh bus and the browser. It (1) coalesces bus topics into per-frame `FrameSnapshot`, (2) transforms ENU→geodetic at one point against the shared datum, (3) aggregates `/rosout` into `LogBatch`, (4) records to disk and serves replay, (5) proxies `RunScenario`/`SetSimSpeed` to `mics_sim_orchestrator`, and (6) is the auth boundary. Transport is WebSocket on `:8080` (§8, §10).
+- **Frontend** — CesiumJS + Resium 3D scene (entities, sensor volumes, point clouds), high-performance grids (interceptor/target/process-log), and panels (ScenarioPanel, Recording, gated Operator). Renders on browser WebGL — independent of the GPU-less sim host.
+- **Live vs replay symmetry** — the frontend consumes the same `FrameSnapshot`/`LogBatch` stream whether live from the bus or replayed from a recording; the gateway is the switch.
+- **Recording** — `recordings/<session>/` holds state, logs, manifest, and rosbag2, written by the gateway; replay reads it back through the same wire protocol.
+
+This layer adds no autonomy behaviour and cannot actuate aircraft; its only write path is auth-gated sim control.
 
 ---
 
