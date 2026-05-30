@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mics-core"
+version = "0.1.0"
+description = "MICS behavior-defining core (coordination, autonomy, fusion, simulation) — PRD §4.5 CPU path."
+requires-python = ">=3.10"
+# numpy/pyyaml are provided by the OS (apt python3-numpy/python3-yaml) inside the
+# ROS2 image, and are present on the dev host. Listed here for non-Docker installs.
+dependencies = ["numpy>=1.21", "pyyaml>=5.4"]
+
+[project.optional-dependencies]
+test = ["pytest>=8.0"]
+
+[tool.setuptools]
+packages = ["mics"]
+
+[tool.setuptools.package-data]
+mics = ["py.typed"]

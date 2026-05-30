@@ -1,0 +1,23 @@
+# MICS headless run. One container hosts the full topology (ground station +
+# attacker sim + N aircraft + monitor) over the default DDS transport.
+#
+# Pick a scenario at run time, e.g.:
+#   docker compose run --rm mics ros2 launch mics_nodes mics.launch.py \
+#       scenario:=/scenarios/evasive_reassign.yaml rate_factor:=2.0
+services:
+  mics:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: mics:headless
+    # scenarios are bind-mounted so they can be edited without a rebuild
+    volumes:
+      - ./scenarios:/scenarios:ro
+    environment:
+      - ROS_DOMAIN_ID=42
+      # All nodes live in THIS container, so confine DDS discovery to loopback.
+      # Without this, concurrent `docker compose run` containers share the
+      # compose network + domain and cross-talk (multiple attacker_sims on one
+      # /sim/clock), corrupting every run.
+      - ROS_LOCALHOST_ONLY=1
+      - RCUTILS_LOGGING_BUFFERED_STREAM=0

@@ -1,0 +1,38 @@
+# PRD §9.2: 4 defenders vs 1 evasive target -> tests reassignment + terminal robustness.
+target_source: internal
+sensor_mode: stub
+render: headless
+seed: 3
+max_time_s: 90
+
+defenders:
+  count: 4
+  autopilot: px4
+  airframe: holybro_x500v2
+
+attackers:
+  - id: 1
+    profile: evasive
+    speed_mps: 15
+    r_evade_m: 90
+    start: [-350, 40, 60]
+    asset: [250, -30, 50]
+
+cue_degradation:
+  pos_sigma_m: 15
+  dropout_pct: 20
+  latency_ms: 300
+
+allocation:
+  algorithm: hungarian
+  redundancy: 1
+  reassign_max_latency_s: 1.0
+
+terminal:
+  guidance: proportional_navigation
+  nav_constant: 4.0
+  r_capture_m: 4.0
+
+safety:
+  geofence_radius_m: 800
+  capture_min_teammate_sep_m: 10

@@ -1,0 +1,47 @@
+# PRD §9.2: 4 defenders vs 3 simultaneous targets (allocation stress).
+target_source: internal
+sensor_mode: stub
+render: headless
+seed: 5
+max_time_s: 90
+
+defenders:
+  count: 4
+  autopilot: px4
+  airframe: holybro_x500v2
+
+attackers:
+  - id: 1
+    profile: ingress
+    speed_mps: 13
+    start: [-300, 120, 60]
+    asset: [200, 60, 50]
+  - id: 2
+    profile: ingress
+    speed_mps: 14
+    start: [-320, 0, 55]
+    asset: [220, 0, 50]
+  - id: 3
+    profile: ingress
+    speed_mps: 12
+    start: [-300, -120, 50]
+    asset: [200, -60, 50]
+
+cue_degradation:
+  pos_sigma_m: 15
+  dropout_pct: 20
+  latency_ms: 300
+
+allocation:
+  algorithm: hungarian
+  redundancy: 1
+  reassign_max_latency_s: 1.0
+
+terminal:
+  guidance: proportional_navigation
+  nav_constant: 3.5
+  r_capture_m: 4.0
+
+safety:
+  geofence_radius_m: 900
+  capture_min_teammate_sep_m: 10

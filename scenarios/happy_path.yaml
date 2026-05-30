@@ -1,0 +1,37 @@
+# PRD §9.2: 1 defender vs 1 non-evasive target (happy path).
+target_source: internal
+sensor_mode: ideal
+render: headless
+seed: 0
+max_time_s: 60
+
+defenders:
+  count: 1
+  autopilot: px4
+  airframe: holybro_x500v2
+
+attackers:
+  - id: 1
+    profile: ingress
+    speed_mps: 12
+    start: [-300, 0, 50]
+    asset: [200, 0, 50]
+
+cue_degradation:
+  pos_sigma_m: 8
+  dropout_pct: 10
+  latency_ms: 200
+
+allocation:
+  algorithm: hungarian
+  redundancy: 1
+  reassign_max_latency_s: 1.0
+
+terminal:
+  guidance: proportional_navigation
+  nav_constant: 3.0
+  r_capture_m: 4.0
+
+safety:
+  geofence_radius_m: 800
+  capture_min_teammate_sep_m: 10

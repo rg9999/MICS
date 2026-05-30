@@ -1,0 +1,42 @@
+# PRD Appendix A.1: CPU-only laptop preset. Headless, reduced swarm, no camera.
+target_source: internal
+sensor_mode: stub
+render: headless
+seed: 1
+max_time_s: 90
+
+defenders:
+  count: 2
+  autopilot: px4
+  airframe: holybro_x500v2
+
+attackers:
+  - id: 1
+    profile: ingress
+    speed_mps: 10
+    start: [-280, 20, 50]
+    asset: [200, 0, 50]
+
+cue_degradation:
+  pos_sigma_m: 15
+  dropout_pct: 20
+  latency_ms: 300
+
+allocation:
+  algorithm: greedy
+  redundancy: 1
+  reassign_max_latency_s: 1.0
+
+terminal:
+  guidance: proportional_navigation
+  nav_constant: 3.0
+  r_capture_m: 4.0
+
+sensors:
+  camera: { enabled: false }   # skip camera on CPU (Appendix A.1)
+  lidar:  { enabled: true }
+  radar:  { enabled: true }
+
+safety:
+  geofence_radius_m: 700
+  capture_min_teammate_sep_m: 10

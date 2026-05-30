@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.venv/
+venv/
+
+# ROS2 / colcon build artifacts
+ros2_ws/build/
+ros2_ws/install/
+ros2_ws/log/
+
+# Editor / tooling
+.claude/
+.vscode/
+.idea/
+*.swp
