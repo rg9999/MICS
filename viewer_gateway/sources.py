@@ -34,12 +34,23 @@ from .logbus import LogBus
 from .replayer import iter_merged, load_manifest
 
 
+# SimRunStatus.state mirror — matches mics_msgs/SimRunStatus and the client's
+# SIM_RUN_STATES array, so the fixture's run-status reads the same as the live
+# orchestrator's on the frontend.
+_IDLE, _LAUNCHING, _RUNNING, _STOPPING, _STOPPED, _ERROR = range(6)
+
+
 class FixtureSource:
     """Synthetic scene: defenders orbit/intercept a handful of inbound targets.
 
     Deterministic, ROS-free. Runs a background thread that advances a software
     clock and pushes state into the Aggregator + LogBus, mimicking what the
     live ROS source would do.
+
+    It also implements the scenario control surface (``scenario_proxy``) so the
+    viewer's Run/Stop/speed buttons drive it just like the real orchestrator:
+    Run (re)starts a single pass, Stop halts it, and a completed pass settles
+    into STOPPED rather than looping forever.
     """
 
     mode = "live"
@@ -56,26 +67,93 @@ class FixtureSource:
         self._thread: threading.Thread | None = None
         self._t = 0.0
         self._captured: set[int] = set()
+        # run/control state surfaced to the viewer as a SimRunStatus
+        self._state = _IDLE
+        self._rtf = 1.0
+        self._scenario_id = ""
+        self._run_seq = 0
+        self._run_id = ""
+        # injected by the server so the thread can push status onto the control
+        # channel (same mechanism the ros source uses for /sim_run_status)
+        self.loop = None
+        self.broadcast = None
 
     def start(self):
-        if self._thread is not None:
-            return
-        self._stop.clear()
-        self._thread = threading.Thread(target=self._run, name="fixture", daemon=True)
-        self._thread.start()
-        self.logs.ingest(GwLog(stamp=0.0, level=20, source="fixture",
-                               msg="fixture source started", func="start"))
+        # auto-run one pass on boot so the demo shows motion immediately
+        self._begin("fixture")
 
     def stop(self):
-        self._stop.set()
-        if self._thread is not None:
-            self._thread.join(timeout=1.0)
-            self._thread = None
+        self._halt()
 
     def reset(self):
         self.agg.clear()
         self._t = 0.0
         self._captured.clear()
+
+    # --- run control -------------------------------------------------------
+
+    def _begin(self, scenario_id: str):
+        self._halt()  # ensure any prior pass is fully stopped
+        self.reset()
+        self._run_seq += 1
+        self._scenario_id = scenario_id or "fixture"
+        self._run_id = f"fixture-{self._run_seq}"
+        self._stop.clear()
+        self._state = _RUNNING
+        self._thread = threading.Thread(target=self._run, name="fixture", daemon=True)
+        self._thread.start()
+        self.logs.ingest(GwLog(stamp=0.0, level=20, source="fixture",
+                               msg=f"fixture run started ({self._scenario_id})", func="run"))
+        self._emit_status()
+
+    def _halt(self):
+        self._stop.set()
+        t = self._thread
+        if t is not None and t.is_alive() and t is not threading.current_thread():
+            t.join(timeout=1.0)
+        self._thread = None
+        if self._state in (_RUNNING, _LAUNCHING):
+            self._state = _STOPPED
+            self.logs.ingest(GwLog(stamp=self._t, level=20, source="fixture",
+                                   msg="fixture run stopped", func="stop"))
+            self._emit_status()
+
+    async def scenario_proxy(self, action: str, msg: dict):
+        if action == "scenarios.run":
+            self._begin(str(msg.get("scenarioId", "") or "fixture"))
+            return {"accepted": True, "scenarioId": self._scenario_id}
+        if action == "scenarios.stop":
+            self._halt()
+            return {"requested": True}
+        if action == "sim.setSpeed":
+            self._rtf = max(0.1, min(20.0, float(msg.get("requestedRtf", 1.0))))
+            self._emit_status()
+            return {"success": True, "appliedRtf": self._rtf}
+        raise RuntimeError(f"unsupported proxy action: {action}")
+
+    def _emit_status(self):
+        if self.loop is None or self.broadcast is None:
+            return
+        running = self._state == _RUNNING
+        status = {
+            "type": "status", "channel": "sim",
+            "state": int(self._state),
+            "scenarioId": self._scenario_id,
+            "runId": self._run_id,
+            "elapsedS": float(self._t),
+            "dronesUp": int(self.n_drones),
+            "targetsUp": int(max(0, self.n_targets - len(self._captured))),
+            "recordingSessionId": "",
+            "requestedRtf": float(self._rtf),
+            "actualRtf": float(self._rtf if running else 0.0),
+            "rtfControllable": True,
+            "message": "synthetic fixture scene",
+        }
+        try:
+            import asyncio
+            asyncio.run_coroutine_threadsafe(self.broadcast(status), self.loop)
+        except RuntimeError:
+            pass
 
     # --- synthetic scene ---------------------------------------------------
 
@@ -158,16 +236,23 @@ class FixtureSource:
             if ticks % 250 == 0:
                 self.logs.ingest(GwLog(stamp=self._t, level=20, source="fixture",
                                        msg=f"sim_t={self._t:.1f}s", func="_run"))
-            next_t += self.dt
+            # push run-status ~2 Hz so the panel's elapsed / RTF / counts stay live
+            if ticks % 12 == 0:
+                self._emit_status()
+            # run complete: settle into STOPPED (do NOT loop) so Run/Stop is meaningful
+            if len(self._captured) >= self.n_targets and self._t > 2.0:
+                self._state = _STOPPED
+                self.logs.ingest(GwLog(stamp=self._t, level=20, source="fixture",
+                                       msg="all targets captured — run complete", func="_run"))
+                self._emit_status()
+                return
+            # pacing honors the requested real-time factor (speed buttons)
+            next_t += self.dt / max(self._rtf, 1e-3)
             sleep = next_t - time.monotonic()
             if sleep > 0:
                 self._stop.wait(sleep)
             else:
                 next_t = time.monotonic()
-            # loop the scenario so the fixture never goes idle forever
-            if len(self._captured) >= self.n_targets and self._t > 2.0:
-                self._stop.wait(2.0)
-                self.reset()
 
 
 class ReplaySource:
