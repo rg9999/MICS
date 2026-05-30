@@ -11,6 +11,7 @@ import { TargetEntities } from "./TargetEntities";
 import { AssignmentLinks } from "./AssignmentLinks";
 import { FusedTracks } from "./FusedTracks";
 import { EventMarkers } from "./EventMarkers";
+import { Trails } from "./Trails";
 
 // Air-gapped: never contact Cesium Ion. An empty token + no base imagery keeps
 // the globe fully offline (PRD §1.1, §11.4). Self-hosted terrain/imagery can be
@@ -58,6 +59,7 @@ export function CesiumViewer() {
       selectionIndicator={false}
       creditContainer={undefined}
     >
+      <Trails />
       <DefenderEntities />
       <TargetEntities />
       <AssignmentLinks />

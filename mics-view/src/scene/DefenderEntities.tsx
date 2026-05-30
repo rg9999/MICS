@@ -4,13 +4,12 @@ import {
 } from "cesium";
 import { useStore } from "../app/store";
 import { STATE_COLORS } from "../app/config";
-import { toCartesian, enuTip, trailToCartesians } from "./transforms";
+import { toCartesian, enuTip } from "./transforms";
 
 const VELOCITY_SCALE = 3.0; // seconds of look-ahead drawn as the arrow length
 
 export function DefenderEntities() {
   const drones = useStore((s) => s.drones);
-  const trails = useStore((s) => s.trails);
   const layers = useStore((s) => s.layers);
   const selection = useStore((s) => s.selection);
   const setSelection = useStore((s) => s.setSelection);
@@ -23,7 +22,6 @@ export function DefenderEntities() {
         const color = Color.fromCssColorString(STATE_COLORS[d.state] ?? STATE_COLORS.unknown);
         const selected = selection?.kind === "drone" && selection.id === d.droneId;
         const pos = toCartesian(d.position);
-        const trail = trails.get(`drone:${d.droneId}`) ?? [];
         return (
           <Entity
             key={`drone-${d.droneId}`}
@@ -49,13 +47,6 @@ export function DefenderEntities() {
               showBackground
               backgroundColor={Color.fromCssColorString("#101418cc")}
             />
-            {layers.trails && trail.length > 1 && (
-              <PolylineGraphics
-                positions={trailToCartesians(trail)}
-                width={2}
-                material={color.withAlpha(0.5)}
-              />
-            )}
             {layers.velocity && (
               <PolylineGraphics
                 positions={[pos, enuTip(d.position, d.velEnu, VELOCITY_SCALE)]}

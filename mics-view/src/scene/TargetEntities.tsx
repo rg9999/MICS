@@ -5,7 +5,7 @@ import {
   Cartesian2, Cartesian3, Color, LabelStyle, VerticalOrigin,
 } from "cesium";
 import { useStore } from "../app/store";
-import { toCartesian, enuTip, trailToCartesians } from "./transforms";
+import { toCartesian, enuTip } from "./transforms";
 
 const VELOCITY_SCALE = 3.0;
 
@@ -13,7 +13,6 @@ const VELOCITY_SCALE = 3.0;
 // opacity falling off as the track ages (staleness styling, FR-V-11).
 export function TargetEntities() {
   const tracks = useStore((s) => s.tracks);
-  const trails = useStore((s) => s.trails);
   const layers = useStore((s) => s.layers);
   const selection = useStore((s) => s.selection);
   const setSelection = useStore((s) => s.setSelection);
@@ -26,7 +25,6 @@ export function TargetEntities() {
         const selected = selection?.kind === "target" && selection.id === t.targetId;
         const pos = toCartesian(t.position);
         const staleness = Math.max(0.25, 1 - Math.min(t.age, 10) / 10);
-        const trail = trails.get(`target:${t.targetId}`) ?? [];
         const sigma = Math.max(t.posSigmaM, 1);
         return (
           <Entity
@@ -56,13 +54,6 @@ export function TargetEntities() {
                 material={Color.ORANGERED.withAlpha(0.18 * staleness)}
                 outline
                 outlineColor={Color.ORANGERED.withAlpha(0.4)}
-              />
-            )}
-            {layers.trails && trail.length > 1 && (
-              <PolylineGraphics
-                positions={trailToCartesians(trail)}
-                width={2}
-                material={Color.ORANGERED.withAlpha(0.45)}
               />
             )}
             {layers.velocity && t.velEnu && (

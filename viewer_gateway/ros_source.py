@@ -168,6 +168,9 @@ class RosSource:
         sc = self.cfg.scenarios
         if not self._action_client.wait_for_server(timeout_sec=2.0):
             raise RuntimeError("orchestrator action server unavailable")
+        # drop the prior run's entities so the new run starts from a clean scene
+        # (the client clears too, but this stops a stale frame racing the reset)
+        self.agg.clear()
         goal = self._RunScenario.Goal()
         goal.scenario_id = str(msg.get("scenarioId", ""))
         goal.overrides_yaml = str(msg.get("overridesYaml", "")) if sc.allow_overrides else ""

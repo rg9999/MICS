@@ -24,6 +24,7 @@ export function ScenarioPanel() {
   const run = async () => {
     if (!sel) return;
     setBusy(true);
+    useStore.getState().resetScene();  // clear the map before the new run streams in
     try { await gw.request("scenarios.run", { scenarioId: sel }); }
     catch (e) { console.warn(e); }
     finally { setBusy(false); }

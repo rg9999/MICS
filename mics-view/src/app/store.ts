@@ -57,6 +57,7 @@ interface StoreState {
 
   // actions
   applyMessage: (m: ServerMessage) => void;
+  resetScene: () => void;
   setConnected: (v: boolean) => void;
   setSelection: (s: Selection) => void;
   toggleLayer: (k: LayerKey) => void;
@@ -119,6 +120,14 @@ export const useStore = create<StoreState>((set) => ({
           return {};
       }
     }),
+
+  // wipe all live scene state — used when a new run is launched so the map
+  // starts clean instead of carrying over the previous run's entities/trails
+  resetScene: () => set({
+    stamp: 0, drones: [], tracks: [], assignments: [], estimates: {},
+    dronesDerived: {}, targetsDerived: {}, events: [],
+    trails: new Map(), selection: null,
+  }),
 
   setConnected: (v) => set({ connected: v }),
   setSelection: (selection) => set({ selection }),
