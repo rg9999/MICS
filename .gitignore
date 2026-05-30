@@ -15,6 +15,10 @@ ros2_ws/build/
 ros2_ws/install/
 ros2_ws/log/
 
+# Node / frontend
+node_modules/
+*.local
+
 # Editor / tooling
 .claude/
 .vscode/

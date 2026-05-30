@@ -1,0 +1,177 @@
+:root {
+  --bg: #0d1117;
+  --panel: #161b22e6;
+  --panel-solid: #161b22;
+  --border: #2b313a;
+  --text: #cfd3da;
+  --muted: #8a8f98;
+  --accent: #4da3ff;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root {
+  margin: 0;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  font-family: -apple-system, "Segoe UI", system-ui, sans-serif;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg);
+}
+
+.cesium-widget-credits { display: none !important; }
+
+.app {
+  position: relative;
+  height: 100vh;
+  width: 100vw;
+}
+
+.scene { position: absolute; inset: 0; }
+
+.topbar {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  right: 8px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 12px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  z-index: 20;
+  backdrop-filter: blur(4px);
+}
+.topbar .title { font-weight: 600; letter-spacing: 0.5px; }
+.topbar .spacer { flex: 1; }
+
+.badge {
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  border: 1px solid var(--border);
+}
+.badge.ok { background: #143; color: #7fe3a4; }
+.badge.bad { background: #411; color: #ff8a8a; }
+.badge.mode { background: #1d2b44; color: var(--accent); }
+
+.sidebar {
+  position: absolute;
+  top: 52px;
+  left: 8px;
+  width: 290px;
+  bottom: 8px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 15;
+}
+
+.dock {
+  position: absolute;
+  bottom: 8px;
+  left: 306px;
+  right: 8px;
+  height: 280px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  z-index: 15;
+  display: flex;
+  flex-direction: column;
+  backdrop-filter: blur(4px);
+}
+
+.detail {
+  position: absolute;
+  top: 52px;
+  right: 8px;
+  width: 280px;
+  z-index: 15;
+}
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+  backdrop-filter: blur(4px);
+}
+.card h3 {
+  margin: 0 0 8px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--muted);
+}
+
+button {
+  background: #1f2630;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 10px;
+  cursor: pointer;
+  font-size: 12px;
+}
+button:hover:not(:disabled) { background: #29313d; }
+button:disabled { opacity: 0.45; cursor: not-allowed; }
+button.primary { background: #1d3a5f; border-color: #2f5b91; }
+button.danger { background: #5a1f24; border-color: #8a2f38; }
+
+select, input[type="text"], input[type="number"] {
+  background: #0f141a;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 6px;
+  font-size: 12px;
+  width: 100%;
+}
+
+.row { display: flex; gap: 6px; align-items: center; }
+.row + .row { margin-top: 6px; }
+.muted { color: var(--muted); }
+.kv { display: flex; justify-content: space-between; gap: 8px; padding: 2px 0; }
+.kv span:first-child { color: var(--muted); }
+
+.toggle-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+.toggle {
+  display: flex; align-items: center; gap: 6px;
+  padding: 3px 4px; border-radius: 4px; cursor: pointer;
+}
+.toggle:hover { background: #1f2630; }
+
+.roster-row {
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 6px; border-radius: 4px; cursor: pointer;
+}
+.roster-row:hover { background: #1f2630; }
+.roster-row.sel { background: #1d3a5f; }
+.dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+
+.dock-tabs { display: flex; gap: 4px; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+.dock-tabs button.active { background: #1d3a5f; border-color: #2f5b91; }
+.dock-body { flex: 1; min-height: 0; }
+.grid-fill { width: 100%; height: 100%; }
+
+.ag-theme-quartz {
+  --ag-background-color: #0f141a;
+  --ag-header-background-color: #161b22;
+  --ag-odd-row-background-color: #11161d;
+  --ag-foreground-color: #cfd3da;
+  --ag-border-color: #2b313a;
+  --ag-row-hover-color: #1f2630;
+  --ag-selected-row-background-color: #1d3a5f;
+  --ag-font-size: 12px;
+  --ag-font-family: monospace;
+}
+
+.log-line { font-family: monospace; font-size: 12px; }

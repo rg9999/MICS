@@ -64,5 +64,35 @@ services:
       - ROS_DOMAIN_ID=42
       - RCUTILS_LOGGING_BUFFERED_STREAM=0
 
+  # Static frontend (nginx). The browser connects to it on :8088 and, from that
+  # same page host, opens a WebSocket to the gateway on :8080.
+  viewer-ui:
+    build:
+      context: ./mics-view
+      dockerfile: Dockerfile
+      target: prod
+    image: mics-view:web
+    profiles: ["viewer", "demo"]
+    ports:
+      - "8088:80"
+
+  # --- demo profile: run the whole UI with NO ROS. The gateway runs its
+  # synthetic fixture source, so `docker compose --profile demo up` brings up a
+  # self-contained, browsable demo (UI on :8088, gateway on :8080).
+  gateway-demo:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: mics:headless
+    profiles: ["demo"]
+    command: ["python3", "-m", "viewer_gateway", "--source", "fixture",
+              "--config", "/config/gateway.yaml"]
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./scenarios:/scenarios:ro
+      - ./viewer_gateway/gateway.example.yaml:/config/gateway.yaml:ro
+      - mics-recordings:/recordings
+
 volumes:
   mics-recordings:
