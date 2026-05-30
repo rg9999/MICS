@@ -8,6 +8,7 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(action_msgs REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
@@ -15,7 +16,11 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/Assignment.msg"
   "msg/DroneStatus.msg"
   "msg/CaptureEvent.msg"
-  DEPENDENCIES std_msgs geometry_msgs
+  "msg/ScenarioInfo.msg"
+  "msg/SimRunStatus.msg"
+  "srv/SetSimSpeed.srv"
+  "action/RunScenario.action"
+  DEPENDENCIES std_msgs geometry_msgs action_msgs
 )
 
 ament_package()

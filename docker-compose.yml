@@ -21,3 +21,48 @@ services:
       # /sim/clock), corrupting every run.
       - ROS_LOCALHOST_ONLY=1
       - RCUTILS_LOGGING_BUFFERED_STREAM=0
+
+  # --- viewer profile: always-on sim-host orchestrator + ROS<->browser gateway.
+  # Brought up with:  docker compose --profile viewer up
+  #
+  # Unlike the ephemeral `mics` runs above, these are singletons that must see
+  # each other's topics, so they share ROS_DOMAIN_ID over the compose network
+  # and DO NOT set ROS_LOCALHOST_ONLY. There is exactly one orchestrator (and
+  # the one sim it launches as a child), so the concurrent-run cross-talk the
+  # `mics` service guards against cannot occur here.
+  orchestrator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: mics:headless
+    profiles: ["viewer"]
+    command: ["ros2", "launch", "mics_nodes", "orchestrator.launch.py",
+              "catalog_dir:=/scenarios", "default_rtf:=2.0"]
+    volumes:
+      - ./scenarios:/scenarios:ro
+    environment:
+      - ROS_DOMAIN_ID=42
+      - RCUTILS_LOGGING_BUFFERED_STREAM=0
+
+  gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: mics:headless
+    profiles: ["viewer"]
+    command: ["python3", "-m", "viewer_gateway", "--source", "ros",
+              "--config", "/config/gateway.yaml"]
+    depends_on:
+      - orchestrator
+    ports:
+      - "8080:8080"          # the single host port the browser connects to
+    volumes:
+      - ./scenarios:/scenarios:ro
+      - ./viewer_gateway/gateway.example.yaml:/config/gateway.yaml:ro
+      - mics-recordings:/recordings
+    environment:
+      - ROS_DOMAIN_ID=42
+      - RCUTILS_LOGGING_BUFFERED_STREAM=0
+
+volumes:
+  mics-recordings:

@@ -32,6 +32,11 @@ RUN source /opt/ros/humble/setup.bash \
     && cd ros2_ws \
     && colcon build --symlink-install
 
+# viewer-gateway (ROS<->browser choke point). Runs from /opt/mics via
+# `python3 -m viewer_gateway`; only its `ros` source imports rclpy/mics_msgs.
+RUN pip install --no-cache-dir "websockets>=12"
+COPY viewer_gateway ./viewer_gateway
+
 COPY scenarios /scenarios
 COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh

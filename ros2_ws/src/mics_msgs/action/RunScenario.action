@@ -1,0 +1,23 @@
+# Launch a vetted catalog scenario (PRD viewer §6.7). Long-running with
+# feedback + cancel; complemented by the /sim_run_status topic so any number
+# of observers can watch without holding the goal handle.
+# ---- Goal ----
+string  scenario_id           # from the catalog (never a free-form path/command)
+string  overrides_yaml        # optional inline overlay (e.g. laptop profile); may be empty
+bool    record                # auto-start a recording session for this run
+float64 requested_rtf         # initial real-time factor; 0 = "as fast as possible", SITL only
+---
+# ---- Result ----
+bool    success
+string  message
+string  run_id
+string  recording_session_id  # set if record=true
+float64 duration_s
+---
+# ---- Feedback ----
+uint8   state                 # see SimRunStatus constants
+string  detail
+float64 elapsed_s
+uint8   drones_up
+uint8   targets_up
+float64 actual_rtf            # achieved real-time factor

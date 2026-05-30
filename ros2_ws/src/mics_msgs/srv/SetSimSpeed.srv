@@ -1,0 +1,6 @@
+# Runtime real-time-factor change (gated; SITL only) — PRD viewer §6.7.
+float64 requested_rtf      # 0 = as fast as possible; ignored if not controllable
+---
+bool    success
+float64 applied_rtf        # what the orchestrator actually set
+string  message

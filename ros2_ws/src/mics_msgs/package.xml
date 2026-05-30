@@ -3,7 +3,7 @@
 <package format="3">
   <name>mics_msgs</name>
   <version>0.1.0</version>
-  <description>MICS message interfaces (PRD §8): TargetTrack, Assignment, DroneStatus, CaptureEvent.</description>
+  <description>MICS message interfaces (PRD §8 / viewer §6.7): TargetTrack, Assignment, DroneStatus, CaptureEvent, ScenarioInfo, SimRunStatus, SetSimSpeed, RunScenario.</description>
   <maintainer email="dev@example.com">MICS</maintainer>
   <license>Apache-2.0</license>
 
@@ -12,6 +12,7 @@
 
   <depend>std_msgs</depend>
   <depend>geometry_msgs</depend>
+  <depend>action_msgs</depend>
 
   <exec_depend>rosidl_default_runtime</exec_depend>
   <member_of_group>rosidl_interface_packages</member_of_group>

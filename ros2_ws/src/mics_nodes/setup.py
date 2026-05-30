@@ -10,7 +10,8 @@ setup(
         ("share/ament_index/resource_index/packages",
          ["resource/" + package_name]),
         ("share/" + package_name, ["package.xml"]),
-        ("share/" + package_name + "/launch", ["launch/mics.launch.py"]),
+        ("share/" + package_name + "/launch",
+         ["launch/mics.launch.py", "launch/orchestrator.launch.py"]),
     ],
     install_requires=["setuptools"],
     zip_safe=True,
@@ -26,6 +27,7 @@ setup(
             "allocator = mics_nodes.allocator_node:main",
             "aircraft = mics_nodes.aircraft_node:main",
             "monitor = mics_nodes.monitor_node:main",
+            "sim_orchestrator = mics_nodes.sim_orchestrator_node:main",
         ],
     },
 )
