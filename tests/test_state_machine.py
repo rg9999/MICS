@@ -1,6 +1,6 @@
 import numpy as np
 
-from mics.attacker import Attacker
+from mics.attacker import Attacker, AttackerState
 from mics.drone import Drone, DroneParams
 from mics.msgs import Assignment, DroneState, TargetTrack, TrackSource
 from mics.sensors import SensorSuite
@@ -84,6 +84,41 @@ def test_terminal_track_loss_fails():
             break
     assert d.state == DroneState.FAILED
     assert getattr(d, "fail_reason", None) == "track_lost"
+
+
+def test_external_plant_does_not_integrate():
+    """With external_plant=True the FSM still runs but motion is owned by the
+    plant: step() must not move the drone, it only emits cmd_velocity. set_state()
+    is the only thing that changes position/velocity."""
+    d = make_drone(pos=(0, 0, 50))
+    d.external_plant = True
+    d.set_assignment(Assignment(stamp=0.0, drone_id=1, target_id=5))
+    start = d.position.copy()
+    d.step(0.0, 0.05, cue(5, [100, 0, 50]), None, [])
+    # position untouched by step(); a non-zero velocity command was produced
+    assert np.array_equal(d.position, start)
+    assert np.linalg.norm(d.cmd_velocity) > 0.0
+    # the plant feeds the resulting pose back in for the next tick
+    d.set_state(np.array([1.0, 0, 50]), np.array([2.0, 0, 0]))
+    assert np.array_equal(d.position, np.array([1.0, 0, 50]))
+    assert np.array_equal(d.velocity, np.array([2.0, 0, 0]))
+
+
+def test_external_plant_capture_uses_fed_back_pose():
+    """Capture geometry in TERMINAL must evaluate against the plant-reported pose
+    (observe -> decide), not an internally integrated one."""
+    from mics.sensors import LidarMeas
+    d = make_drone(pos=(0, 0, 50), t_lock=0.05, q_handoff=0.5, r_capture_m=5.0)
+    d.external_plant = True
+    d.state = DroneState.TERMINAL
+    d.assignment = Assignment(stamp=0.0, drone_id=1, target_id=5)
+    # place the drone (via the plant) right on top of a freshly measured target
+    d.set_state(np.array([0.0, 0, 50]), np.array([4.0, 0, 0]))
+    d.fusion.set_ownship(d.position, d.velocity)
+    d.fusion.update_lidar(LidarMeas(stamp=0.0, position=np.array([2.0, 0, 0])))
+    d.step(0.05, 0.05, None,
+           AttackerState(5, np.array([2.0, 0, 50]), np.array([0.0, 0, 0]), True), [])
+    assert d.state == DroneState.CAPTURED
 
 
 def test_safety_rtl_on_geofence_breach():

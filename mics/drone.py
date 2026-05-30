@@ -53,8 +53,15 @@ class Drone:
     safety_cfg: SafetyConfig = field(default_factory=SafetyConfig)
     rng: np.random.Generator = None
 
+    # When True, an external simulator (e.g. Gazebo) owns the airframe motion:
+    # the FSM/guidance still run, but instead of integrating internally we only
+    # emit `cmd_velocity` and expect set_state() to write the plant pose back in
+    # before the next tick. Software-sim leaves this False and integrates itself.
+    external_plant: bool = False
+
     # runtime
     velocity: np.ndarray = field(default_factory=lambda: np.zeros(3))
+    cmd_velocity: np.ndarray = field(default_factory=lambda: np.zeros(3))
     state: DroneState = DroneState.IDLE
     assignment: Assignment = None
     battery_pct: float = 100.0
@@ -269,8 +276,20 @@ class Drone:
 
     # --- kinematics -------------------------------------------------------
 
+    def set_state(self, position: np.ndarray, velocity: np.ndarray) -> None:
+        """Write an externally-simulated pose (e.g. from Gazebo) into the drone so
+        the FSM, guidance, and capture geometry operate on the true plant state.
+        Used only when external_plant=True; software-sim integrates via step()."""
+        self.position = np.asarray(position, dtype=float)
+        self.velocity = np.asarray(velocity, dtype=float)
+
     def _apply_velocity(self, setpoint: np.ndarray, dt: float) -> None:
         setpoint = clamp_norm(setpoint, self.params.max_speed)
+        # Always record the command so an external plant can consume it.
+        self.cmd_velocity = setpoint
+        if self.external_plant:
+            # Physics owns position/velocity; set_state() supplies them each tick.
+            return
         alpha = dt / (self.params.accel_tau + dt)
         self.velocity = self.velocity + alpha * (setpoint - self.velocity)
         self.position = self.position + self.velocity * dt
