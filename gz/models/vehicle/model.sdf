@@ -1,0 +1,38 @@
+<?xml version="1.0" ?>
+<sdf version="1.8">
+  <model name="vehicle">
+    <!-- A single floating body. VelocityControl sets the body's velocity each
+         step directly (kinematic-style command tracking), so we don't model
+         rotors/aero in Phase 1. The body is light and gravity is countered by
+         the velocity command, so it behaves like a velocity-servoed multicopter. -->
+    <link name="base">
+      <inertial>
+        <mass>1.5</mass>
+        <inertia>
+          <ixx>0.03</ixx><iyy>0.03</iyy><izz>0.05</izz>
+          <ixy>0</ixy><ixz>0</ixz><iyz>0</iyz>
+        </inertia>
+      </inertial>
+      <collision name="c">
+        <geometry><box><size>0.4 0.4 0.15</size></box></geometry>
+      </collision>
+      <visual name="v">
+        <geometry><box><size>0.4 0.4 0.15</size></box></geometry>
+      </visual>
+    </link>
+
+    <!-- Commanded-velocity control: subscribes /model/<name>/cmd_vel
+         (ignition.msgs.Twist) and drives the model to that world-frame velocity. -->
+    <plugin filename="ignition-gazebo-velocity-control-system"
+            name="ignition::gazebo::systems::VelocityControl"/>
+
+    <!-- Ground-truth feedback: publishes /model/<name>/odometry
+         (ignition.msgs.Odometry == pose + twist) consumed by the MICS nodes. -->
+    <plugin filename="ignition-gazebo-odometry-publisher-system"
+            name="ignition::gazebo::systems::OdometryPublisher">
+      <dimensions>3</dimensions>
+      <odom_publish_frequency>50</odom_publish_frequency>
+      <odom_frame>world</odom_frame>
+    </plugin>
+  </model>
+</sdf>

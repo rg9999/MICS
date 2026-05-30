@@ -1,0 +1,38 @@
+<?xml version="1.0" ?>
+<!-- MICS Gazebo Fortress world (Phase 1: physics-only, headless, CPU).
+     Fixed 0.05 s step == the mics core dt, so one physics iteration advances
+     exactly one control tick and the bridged /clock drives the MICS nodes in
+     sim-time lockstep. No rendered sensors here (those are a later GPU phase);
+     defenders/attackers are spawned at runtime by the launch file. -->
+<sdf version="1.8">
+  <world name="mics">
+    <physics name="fixed-step" type="ignored">
+      <max_step_size>0.05</max_step_size>
+      <real_time_factor>2.0</real_time_factor>
+    </physics>
+
+    <plugin filename="ignition-gazebo-physics-system"
+            name="ignition::gazebo::systems::Physics"/>
+    <plugin filename="ignition-gazebo-user-commands-system"
+            name="ignition::gazebo::systems::UserCommands"/>
+    <plugin filename="ignition-gazebo-scene-broadcaster-system"
+            name="ignition::gazebo::systems::SceneBroadcaster"/>
+
+    <gravity>0 0 -9.8</gravity>
+
+    <light type="directional" name="sun">
+      <cast_shadows>false</cast_shadows>
+      <direction>-0.5 0.1 -0.9</direction>
+    </light>
+
+    <!-- Flat ground at z=0; the scenario datum is the world origin. -->
+    <model name="ground">
+      <static>true</static>
+      <link name="link">
+        <collision name="c">
+          <geometry><plane><normal>0 0 1</normal><size>10000 10000</size></plane></geometry>
+        </collision>
+      </link>
+    </model>
+  </world>
+</sdf>

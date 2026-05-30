@@ -11,7 +11,8 @@ setup(
          ["resource/" + package_name]),
         ("share/" + package_name, ["package.xml"]),
         ("share/" + package_name + "/launch",
-         ["launch/mics.launch.py", "launch/orchestrator.launch.py"]),
+         ["launch/mics.launch.py", "launch/orchestrator.launch.py",
+          "launch/gazebo.launch.py"]),
     ],
     install_requires=["setuptools"],
     zip_safe=True,
@@ -28,6 +29,7 @@ setup(
             "aircraft = mics_nodes.aircraft_node:main",
             "monitor = mics_nodes.monitor_node:main",
             "sim_orchestrator = mics_nodes.sim_orchestrator_node:main",
+            "clock_bridge = mics_nodes.clock_bridge_node:main",
         ],
     },
 )

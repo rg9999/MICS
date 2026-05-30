@@ -1,0 +1,29 @@
+# MICS — Gazebo Fortress runtime (physics-authoritative, headless).
+#
+# Layers Gazebo Fortress + ros_gz onto the headless image so the same mics core
+# / ros2_ws build is reused. Physics + analytic sensors only: no rendered camera
+# pipeline, so this runs CPU-only (a rendered-sensor path would need a GPU and
+# is deferred). Gazebo owns the clock here; see gazebo.launch.py.
+FROM mics:headless
+
+SHELL ["/bin/bash", "-c"]
+
+# Fortress is the Gazebo release paired with ROS2 Humble. ros-humble-ros-gz
+# brings the parameter_bridge + spawner (ros_gz_bridge / ros_gz_sim); the
+# ignition-fortress metapackage provides the `ign gazebo` server + systems.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ignition-fortress \
+        ros-humble-ros-gz \
+    && rm -rf /var/lib/apt/lists/*
+
+# Re-source so the freshly-installed ros_gz packages are on the ament path,
+# then rebuild the workspace overlay (no-op for sources, links the new deps).
+RUN source /opt/ros/humble/setup.bash \
+    && cd /opt/mics/ros2_ws \
+    && colcon build --symlink-install
+
+# World + vehicle models the launch file spawns from (/gz default for gz_dir).
+COPY gz /gz
+
+CMD ["ros2", "launch", "mics_nodes", "gazebo.launch.py", \
+     "scenario:=/scenarios/happy_path.yaml"]

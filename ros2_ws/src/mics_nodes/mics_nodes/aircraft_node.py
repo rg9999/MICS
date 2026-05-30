@@ -12,6 +12,8 @@ import numpy as np
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import Float64
+from geometry_msgs.msg import Twist
+from nav_msgs.msg import Odometry
 
 from mics.attacker import AttackerState
 from mics.config import load_scenario
@@ -32,6 +34,8 @@ class AircraftNode(Node):
         self.declare_parameter("scenario", "")
         self.declare_parameter("rate_factor", 5.0)
         self.declare_parameter("drone_id", 1)
+        self.declare_parameter("profile", "software-sim")
+        self.profile = self.get_parameter("profile").value
         self.cfg = load_scenario(self.get_parameter("scenario").value)
         rate_factor = float(self.get_parameter("rate_factor").value)
         self.dt = self.cfg.dt
@@ -67,7 +71,25 @@ class AircraftNode(Node):
         self.create_subscription(Float64, "/sim/clock", self._on_clock, 2000)
         self.status_pub = self.create_publisher(DroneStatusMsg, "/state_sharing", 10)
         self.capture_pub = self.create_publisher(CaptureEventMsg, "/capture_events", 10)
-        self.get_logger().info(f"aircraft {did} up at x={x:.0f}")
+
+        # gazebo profile: physics owns motion. Read the model pose/velocity back
+        # from Gazebo (OdometryPublisher) and emit a velocity command instead of
+        # integrating internally.
+        self.model_name = f"defender_{did}"
+        self._odom = None
+        if self.profile == "gazebo":
+            self.drone.external_plant = True
+            self.create_subscription(
+                Odometry, f"/model/{self.model_name}/odometry", self._on_odom, 50)
+            self.cmd_pub = self.create_publisher(
+                Twist, f"/model/{self.model_name}/cmd_vel", 10)
+        self.get_logger().info(
+            f"aircraft {did} up at x={x:.0f} profile={self.profile}")
+
+    def _on_odom(self, m: Odometry):
+        p = m.pose.pose.position
+        v = m.twist.twist.linear
+        self._odom = (np.array([p.x, p.y, p.z]), np.array([v.x, v.y, v.z]))
 
     def _on_assign(self, m: AssignmentMsg):
         if int(m.drone_id) != self.drone.drone_id:
@@ -92,6 +114,12 @@ class AircraftNode(Node):
         self.t = m.data
         now = self.t
 
+        # gazebo: adopt the plant-reported pose before deciding (observe -> act)
+        if self.profile == "gazebo":
+            if self._odom is None:
+                return  # wait for the first odometry before commanding
+            self.drone.set_state(*self._odom)
+
         for tid in [t for t, ts in self._truth_seen.items()
                     if self.t - ts > self.truth_ttl]:
             self._truth.pop(tid, None)
@@ -114,6 +142,12 @@ class AircraftNode(Node):
                 f"batt={self.drone.battery_pct:.0f}")
             self.capture_pub.publish(cv.capture_to_msg(ev))
         self.drone.capture_events.clear()
+
+        if self.profile == "gazebo":
+            c = self.drone.cmd_velocity
+            tw = Twist()
+            tw.linear.x, tw.linear.y, tw.linear.z = float(c[0]), float(c[1]), float(c[2])
+            self.cmd_pub.publish(tw)
 
         self.status_pub.publish(cv.status_to_msg(self.drone.status(now)))
 

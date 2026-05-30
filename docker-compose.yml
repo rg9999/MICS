@@ -22,6 +22,28 @@ services:
       - ROS_LOCALHOST_ONLY=1
       - RCUTILS_LOGGING_BUFFERED_STREAM=0
 
+  # --- gazebo profile: physics-authoritative run on Gazebo Fortress (headless).
+  # The image layers Fortress + ros_gz onto mics:headless, so build that first:
+  #   docker compose build mics
+  #   docker compose --profile gazebo run --rm mics-gazebo
+  # Override the scenario like the `mics` service:
+  #   docker compose --profile gazebo run --rm mics-gazebo \
+  #       ros2 launch mics_nodes gazebo.launch.py scenario:=/scenarios/evasive_reassign.yaml
+  mics-gazebo:
+    build:
+      context: .
+      dockerfile: Dockerfile.gazebo
+    image: mics:gazebo
+    profiles: ["gazebo"]
+    volumes:
+      - ./scenarios:/scenarios:ro
+    environment:
+      - ROS_DOMAIN_ID=42
+      - ROS_LOCALHOST_ONLY=1
+      - RCUTILS_LOGGING_BUFFERED_STREAM=0
+      # headless render backend; no GPU/display in this container
+      - IGN_GAZEBO_RESOURCE_PATH=/gz/models
+
   # --- viewer profile: always-on sim-host orchestrator + ROS<->browser gateway.
   # Brought up with:  docker compose --profile viewer up
   #
